@@ -1,4 +1,8 @@
-use std::{ffi::OsString, fs};
+use std::{
+    ffi::OsString,
+    fs::{self, File},
+    io::{BufReader, BufRead},
+};
 
 use anyhow::{Error, Result};
 
@@ -7,9 +11,9 @@ use crate::store::{self, FileStoreResult};
 pub struct LocalStore {}
 
 impl LocalStore {
-    fn new(self) -> Self {
-        self
-    }
+    // pub fn new(&self) -> Self {
+    //     self
+    // }
 }
 
 impl store::FileStore for LocalStore {
@@ -34,14 +38,17 @@ impl store::FileStore for LocalStore {
                 file_type,
                 is_dir: meta.is_dir(),
                 modified: chrono::DateTime::from(meta.modified()?),
+                modified_by: "".to_string(),
             };
             v.push(r);
         }
         Ok(v)
     }
 
-    fn get_obj(path: store::PathConfig) -> Result<Vec<store::FileStoreResult>, Error> {
-        todo!()
+    fn get_obj(path: store::PathConfig) -> Result<Box<dyn BufRead>, Error> {
+        let f = File::open(path.path)?;
+        // BufReader<File>
+        Ok(Box::new(BufReader::new(f)))
     }
 
     fn put_obj(path: store::PathConfig) -> Result<Vec<store::FileStoreResult>, Error> {

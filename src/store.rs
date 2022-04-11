@@ -1,5 +1,7 @@
-use chrono::{self, Utc};
+use std::io::BufRead;
+
 use anyhow::Error;
+use chrono::{self, Utc};
 
 // #[derive(Debug)]
 // pub enum Error {
@@ -36,19 +38,20 @@ pub struct PathConfig {
 }
 
 pub struct FileStoreResult {
-    pub id: u32,      // u32 is good - is there going to be more than 2**32 entries in a folder
+    pub id: u32, // u32 is good - is there going to be more than 2**32 entries in a folder
     pub name: String, // use String for mutability and ownership
     pub size: u64,
     pub path: String,
     pub file_type: String,
     pub is_dir: bool,
     pub modified: chrono::DateTime<Utc>,
+    pub modified_by: String,
 }
 
 pub trait FileStore {
     // Box<Error> can handle any error derived from std::error::Error
     fn get_dir(path: PathConfig) -> Result<Vec<FileStoreResult>, Error>;
-    fn get_obj(path: PathConfig) -> Result<Vec<FileStoreResult>, Error>;
+    fn get_obj(path: PathConfig) -> Result<Box<dyn BufRead>, Error>;
     fn put_obj(path: PathConfig) -> Result<Vec<FileStoreResult>, Error>;
     fn upload_file(path: PathConfig) -> Result<Vec<FileStoreResult>, Error>;
 }
