@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 chrono = "0.4"
 anyhow = "1.0.56"
+sha2 = "0.10.2"
+bytes = { version = "1", features = ["serde"] }
