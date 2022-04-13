@@ -1,13 +1,14 @@
 use std::{
     ffi::OsString,
-    fs::{self, create_dir, metadata, remove_dir_all, remove_file, File},
-    io::{self, BufRead, BufReader, Write},
+    fs::{self, create_dir, metadata, remove_dir_all, remove_file, File, create_dir_all},
+    io::{self, BufRead, BufReader, Write}, path::PathBuf,
 };
 
-use crate::store::{self, FileOperationOutput, FileStoreResult};
+use crate::store::{self, FileOperationOutput, FileStoreResult, UploadConfig, UploadResult};
 use anyhow::{Error, Result};
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
+use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
 pub struct FileSystemStore {}
@@ -70,12 +71,28 @@ impl store::FileStore for FileSystemStore {
         todo!()
     }
 
-    fn init_object_upload(path: &str) -> Result<Vec<FileStoreResult>, Error> {
-        todo!()
+    // init_object_upload creates folder and file
+    fn init_object_upload(u: UploadConfig) -> Result<UploadResult, Error> {
+        let mut res = UploadResult::default();
+        let path = PathBuf::from(u.object_path);
+        let dir = path.parent();
+        match dir {
+            Some(x) => create_dir_all(x)?,
+            None => (),
+        }
+        File::create(path)?;
+        res.id = Uuid::new_v4();
+        Ok(res)
     }
 
-    fn write_chunk(path: &str) -> Result<Vec<FileStoreResult>, Error> {
-        todo!()
+    fn write_chunk(u: UploadConfig) -> Result<UploadResult, Error> {
+        let mut res = UploadResult::default();
+        let f = File::options().write(true).open(u.object_path)?;
+        res.write_size = f.write(&u.data)?;
+        if res.write_size == u.data.len() {
+            res.is_complete = true;
+        }
+        Ok(res)
     }
 
     fn file_sha256sum(path: &str) -> Result<Box<FileOperationOutput>, Error> {

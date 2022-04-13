@@ -3,6 +3,7 @@ use std::io::BufRead;
 use anyhow::Error;
 use bytes::Bytes;
 use chrono::{self, Utc};
+use uuid::Uuid;
 use walkdir::DirEntry;
 
 // #[derive(Debug)]
@@ -49,14 +50,28 @@ pub struct FileStoreResult {
     pub modified_by: String,
 }
 
+pub struct UploadConfig {
+    pub object_path: String,
+    pub chunk_id: i64,
+    pub upload_id: String,
+    pub data: Bytes,
+}
+
+#[derive(Default)]
+pub struct UploadResult {
+    pub id: Uuid,
+    pub write_size: usize, // # of bytes written
+    pub is_complete: bool,
+}
+
 pub trait FileStore {
     // Box<Error> can handle any error derived from std::error::Error
     fn get_dir(path: &str) -> Result<Vec<FileStoreResult>, Error>;
     fn get_object(path: &str) -> Result<Box<dyn BufRead>, Error>;
     fn put_object(path: &str, data: Bytes) -> Result<Box<FileOperationOutput>, Error>;
     fn upload_file(path: &str) -> Result<Vec<FileStoreResult>, Error>;
-    fn init_object_upload(path: &str) -> Result<Vec<FileStoreResult>, Error>;
-    fn write_chunk(path: &str) -> Result<Vec<FileStoreResult>, Error>;
+    fn init_object_upload(u: UploadConfig) -> Result<UploadResult, Error>;
+    fn write_chunk(u: UploadConfig) -> Result<UploadResult, Error>;
     fn file_sha256sum(path: &str) -> Result<Box<FileOperationOutput>, Error>;
     fn delete_object(path: &str) -> Result<(), Error>;
     fn delete_objects(path: Vec<String>) -> Result<(), Error>;
