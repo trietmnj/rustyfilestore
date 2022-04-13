@@ -3,6 +3,7 @@ use std::io::BufRead;
 use anyhow::Error;
 use bytes::Bytes;
 use chrono::{self, Utc};
+use walkdir::DirEntry;
 
 // #[derive(Debug)]
 // pub enum Error {
@@ -33,13 +34,8 @@ use chrono::{self, Utc};
 //     }
 // }
 
-pub struct FileOprationOuput {
+pub struct FileOperationOutput {
     pub sha256: [u8; 32], // sha256 is unbroken as of Jan 2022
-}
-
-pub struct PathConfig {
-    pub path: String,
-    pub paths: Vec<String>,
 }
 
 pub struct FileStoreResult {
@@ -55,14 +51,14 @@ pub struct FileStoreResult {
 
 pub trait FileStore {
     // Box<Error> can handle any error derived from std::error::Error
-    fn get_dir(path: PathConfig) -> Result<Vec<FileStoreResult>, Error>;
-    fn get_object(path: PathConfig) -> Result<Box<dyn BufRead>, Error>;
-    fn put_object(path: PathConfig, data: Bytes) -> Result<Box<FileOprationOuput>, Error>;
-    fn upload_file(path: PathConfig) -> Result<Vec<FileStoreResult>, Error>;
-    fn init_object_upload(path: PathConfig) -> Result<Vec<FileStoreResult>, Error>;
-    fn write_chunk(path: PathConfig) -> Result<Vec<FileStoreResult>, Error>;
-    fn complete_object_upload(path: PathConfig) -> Result<Vec<FileStoreResult>, Error>;
-    fn delete_object(path: PathConfig) -> Result<Vec<FileStoreResult>, Error>;
-    fn delete_objects(path: PathConfig) -> Result<Vec<FileStoreResult>, Error>;
-    // fn walk(fn(path:&str, func: fn(path:&str, file:Metadata<File>)) -> Result<Vec<FileStoreResult>, Error>;
+    fn get_dir(path: &str) -> Result<Vec<FileStoreResult>, Error>;
+    fn get_object(path: &str) -> Result<Box<dyn BufRead>, Error>;
+    fn put_object(path: &str, data: Bytes) -> Result<Box<FileOperationOutput>, Error>;
+    fn upload_file(path: &str) -> Result<Vec<FileStoreResult>, Error>;
+    fn init_object_upload(path: &str) -> Result<Vec<FileStoreResult>, Error>;
+    fn write_chunk(path: &str) -> Result<Vec<FileStoreResult>, Error>;
+    fn file_sha256sum(path: &str) -> Result<Box<FileOperationOutput>, Error>;
+    fn delete_object(path: &str) -> Result<(), Error>;
+    fn delete_objects(path: Vec<String>) -> Result<(), Error>;
+    fn walk(path: &str, visit_fn: fn(path: DirEntry) -> Result<(), Error>) -> Result<(), Error>;
 }

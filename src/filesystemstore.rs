@@ -1,13 +1,14 @@
 use std::{
     ffi::OsString,
-    fs::{self, create_dir, File},
+    fs::{self, create_dir, metadata, remove_dir_all, remove_file, File},
     io::{self, BufRead, BufReader, Write},
 };
 
-use crate::store::{self, FileOprationOuput, FileStoreResult};
+use crate::store::{self, FileOperationOutput, FileStoreResult};
 use anyhow::{Error, Result};
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
+use walkdir::{DirEntry, WalkDir};
 
 pub struct FileSystemStore {}
 
@@ -18,8 +19,8 @@ impl FileSystemStore {
 }
 
 impl store::FileStore for FileSystemStore {
-    fn get_dir(path: store::PathConfig) -> Result<Vec<store::FileStoreResult>, Error> {
-        let entries = fs::read_dir(path.path)?;
+    fn get_dir(path: &str) -> Result<Vec<store::FileStoreResult>, Error> {
+        let entries = fs::read_dir(path)?;
         let mut v: Vec<FileStoreResult> = Vec::new();
         for (i, en) in entries.enumerate() {
             // p borrows from en and propagates away the errors
@@ -46,51 +47,69 @@ impl store::FileStore for FileSystemStore {
         Ok(v)
     }
 
-    fn get_object(path: store::PathConfig) -> Result<Box<dyn BufRead>, Error> {
-        let f = File::open(path.path)?;
+    fn get_object(path: &str) -> Result<Box<dyn BufRead>, Error> {
+        let f = File::open(path)?;
         Ok(Box::new(BufReader::new(f)))
     }
 
-    fn put_object(path: store::PathConfig, data: Bytes) -> Result<Box<FileOprationOuput>, Error> {
-        let mut o = FileOprationOuput { sha256: [0; 32] };
+    fn put_object(path: &str, data: Bytes) -> Result<Box<FileOperationOutput>, Error> {
+        let mut o = FileOperationOutput { sha256: [0; 32] };
         if data.len() == 0 {
             // no data -> create dir
-            create_dir(path.path)?;
+            create_dir(path)?;
         } else {
             // create file with data
-            let mut f = File::create(path.path)?;
+            let mut f = File::create(path)?;
             f.write_all(&data)?;
             o.sha256 = get_file_sha256(&mut f)?;
         }
         Ok(Box::new(o))
     }
 
-    fn upload_file(path: store::PathConfig) -> Result<Vec<store::FileStoreResult>, Error> {
+    fn upload_file(_path: &str) -> Result<Vec<store::FileStoreResult>, Error> {
         todo!()
     }
 
-    fn init_object_upload(path: store::PathConfig) -> Result<Vec<FileStoreResult>, Error> {
+    fn init_object_upload(path: &str) -> Result<Vec<FileStoreResult>, Error> {
         todo!()
     }
 
-    fn write_chunk(path: store::PathConfig) -> Result<Vec<FileStoreResult>, Error> {
+    fn write_chunk(path: &str) -> Result<Vec<FileStoreResult>, Error> {
         todo!()
     }
 
-    fn complete_object_upload(path: store::PathConfig) -> Result<Vec<FileStoreResult>, Error> {
-        todo!()
+    fn file_sha256sum(path: &str) -> Result<Box<FileOperationOutput>, Error> {
+        let mut o = FileOperationOutput { sha256: [0; 32] };
+        let mut f = File::create(path)?;
+        o.sha256 = get_file_sha256(&mut f)?;
+        Ok(Box::new(o))
     }
 
-    fn delete_object(path: store::PathConfig) -> Result<Vec<FileStoreResult>, Error> {
-        todo!()
+    fn delete_object(path: &str) -> Result<()> {
+        if metadata(path)?.is_dir() {
+            remove_dir_all(path)?;
+        } else {
+            remove_file(path)?;
+        }
+        Ok(())
     }
 
-    fn delete_objects(path: store::PathConfig) -> Result<Vec<FileStoreResult>, Error> {
-        todo!()
+    fn delete_objects(paths: Vec<String>) -> Result<()> {
+        for path in paths {
+            FileSystemStore::delete_object(path.as_str())?;
+        }
+        Ok(())
+    }
+
+    fn walk(path: &str, visit_fn: fn(dir: DirEntry) -> Result<()>) -> Result<()> {
+        for entry in WalkDir::new(path) {
+            visit_fn(entry?)?;
+        }
+        Ok(())
     }
 }
 
-// get_file_sha256 calculates the sha256 of file
+// get_file_sha256 calculates the sha256sum of file
 fn get_file_sha256(f: &mut File) -> Result<[u8; 32], Error> {
     let mut hasher = Sha256::new();
     let _n = io::copy(f, &mut hasher)?;
