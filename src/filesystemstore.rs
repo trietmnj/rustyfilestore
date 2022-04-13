@@ -14,9 +14,9 @@ use walkdir::{DirEntry, WalkDir};
 pub struct FileSystemStore {}
 
 impl FileSystemStore {
-    // pub fn new(&self) -> Self {
-    //     self
-    // }
+    pub fn new(&self) -> Self {
+        FileSystemStore {}
+    }
 }
 
 impl store::FileStore for FileSystemStore {
