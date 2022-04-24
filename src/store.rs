@@ -1,6 +1,7 @@
-use std::io::BufRead;
+use std::collections::HashMap;
 
 use anyhow::Error;
+use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::{self, Utc};
 use uuid::Uuid;
@@ -35,44 +36,51 @@ use walkdir::DirEntry;
 //     }
 // }
 
+#[derive(thiserror::Error, Debug)]
+pub enum StoreError {
+    #[error("s3 access error")]
+    S3Error,
+}
+
 pub struct FileOperationOutput {
-    pub sha256: [u8; 32], // sha256 is unbroken as of Jan 2022
+    pub md5: [u8; 16],
 }
 
 pub struct FileStoreResult {
-    pub id: u32, // u32 is good - is there going to be more than 2**32 entries in a folder
+    pub id: u64,
     pub name: String, // use String for mutability and ownership
     pub size: u64,
     pub path: String,
     pub file_type: String,
     pub is_dir: bool,
     pub modified: chrono::DateTime<Utc>,
-    pub modified_by: String,
+    pub modified_by: Option<String>,
 }
 
 pub struct UploadConfig {
     pub object_path: String,
     pub chunk_id: i64,
     pub upload_id: String,
-    pub data: Bytes,
+    pub data: Vec<u8>,
 }
 
 #[derive(Default)]
 pub struct UploadResult {
-    pub id: Uuid,
+    pub id: String,
     pub write_size: usize, // # of bytes written
     pub is_complete: bool,
 }
 
+#[async_trait]
 pub trait FileStore {
     // Box<Error> can handle any error derived from std::error::Error
-    fn get_dir(path: &str) -> Result<Vec<FileStoreResult>, Error>;
-    fn get_object(path: &str) -> Result<Box<dyn BufRead>, Error>;
-    fn put_object(path: &str, data: Bytes) -> Result<Box<FileOperationOutput>, Error>;
-    fn upload_file(path: &str) -> Result<Vec<FileStoreResult>, Error>;
-    fn init_object_upload(u: UploadConfig) -> Result<UploadResult, Error>;
-    fn write_chunk(u: UploadConfig) -> Result<UploadResult, Error>;
-    fn file_sha256sum(path: &str) -> Result<Box<FileOperationOutput>, Error>;
+    async fn get_dir(&self, path: &str) -> Result<Vec<FileStoreResult>, Error>;
+    // Vec<u8> is can used as a container of bytes
+    async fn get_object(&self, path: &str) -> Result<Vec<u8>, Error>;
+    async fn put_object(&self, path: &str, data: Vec<u8>, metadata: Option<HashMap<String,String>>) -> Result<FileOperationOutput, Error>;
+    async fn init_object_upload(&self, u: UploadConfig) -> Result<UploadResult, Error>;
+    async fn write_chunk(&self, u: UploadConfig) -> Result<UploadResult, Error>;
+    fn file_md5sum(path: &str) -> Result<Box<FileOperationOutput>, Error>;
     fn delete_object(path: &str) -> Result<(), Error>;
     fn delete_objects(path: Vec<String>) -> Result<(), Error>;
     fn walk(path: &str, visit_fn: fn(path: DirEntry) -> Result<(), Error>) -> Result<(), Error>;

@@ -1,13 +1,16 @@
 use std::{
+    collections::HashMap,
     ffi::OsString,
-    fs::{self, create_dir, metadata, remove_dir_all, remove_file, File, create_dir_all},
-    io::{self, BufRead, BufReader, Write}, path::PathBuf,
+    fs::{self, create_dir, create_dir_all, metadata, remove_dir_all, remove_file, File},
+    io::{self, BufReader, Read, Write},
+    path::PathBuf,
 };
 
 use crate::store::{self, FileOperationOutput, FileStoreResult, UploadConfig, UploadResult};
 use anyhow::{Error, Result};
-use bytes::Bytes;
-use sha2::{Digest, Sha256};
+use async_trait::async_trait;
+use md5::Md5;
+use sha2::Digest;
 use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
@@ -19,8 +22,9 @@ impl FileSystemStore {
     }
 }
 
+#[async_trait]
 impl store::FileStore for FileSystemStore {
-    fn get_dir(path: &str) -> Result<Vec<store::FileStoreResult>, Error> {
+    async fn get_dir(&self, path: &str) -> Result<Vec<store::FileStoreResult>, Error> {
         let entries = fs::read_dir(path)?;
         let mut v: Vec<FileStoreResult> = Vec::new();
         for (i, en) in entries.enumerate() {
@@ -34,27 +38,35 @@ impl store::FileStore for FileSystemStore {
                 .to_string_lossy()
                 .to_string();
             let r = FileStoreResult {
-                id: u32::try_from(i).unwrap(),
+                id: u64::try_from(i).unwrap(),
                 name: p.file_name().to_string_lossy().to_string(),
                 size: meta.len(),
                 path: p.path().to_string_lossy().to_string(),
                 file_type,
                 is_dir: meta.is_dir(),
                 modified: chrono::DateTime::from(meta.modified()?),
-                modified_by: "".to_string(),
+                modified_by: None,
             };
             v.push(r);
         }
         Ok(v)
     }
 
-    fn get_object(path: &str) -> Result<Box<dyn BufRead>, Error> {
+    async fn get_object(&self, path: &str) -> Result<Vec<u8>, Error> {
+        let buf = Vec::<u8>::new();
         let f = File::open(path)?;
-        Ok(Box::new(BufReader::new(f)))
+        let reader = BufReader::new(f);
+        let bytes = reader.read_to_end(&mut buf)?;
+        Ok(buf)
     }
 
-    fn put_object(path: &str, data: Bytes) -> Result<Box<FileOperationOutput>, Error> {
-        let mut o = FileOperationOutput { sha256: [0; 32] };
+    async fn put_object(
+        &self,
+        path: &str,
+        data: Vec<u8>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<FileOperationOutput, Error> {
+        let mut o = FileOperationOutput { md5: [0; 16] };
         if data.len() == 0 {
             // no data -> create dir
             create_dir(path)?;
@@ -62,17 +74,13 @@ impl store::FileStore for FileSystemStore {
             // create file with data
             let mut f = File::create(path)?;
             f.write_all(&data)?;
-            o.sha256 = get_file_sha256(&mut f)?;
+            o.md5 = get_file_md5sum(&mut f)?;
         }
-        Ok(Box::new(o))
-    }
-
-    fn upload_file(_path: &str) -> Result<Vec<store::FileStoreResult>, Error> {
-        todo!()
+        Ok(o)
     }
 
     // init_object_upload creates folder and file
-    fn init_object_upload(u: UploadConfig) -> Result<UploadResult, Error> {
+    async fn init_object_upload(&self, u: UploadConfig) -> Result<UploadResult, Error> {
         let mut res = UploadResult::default();
         let path = PathBuf::from(u.object_path);
         let dir = path.parent();
@@ -81,11 +89,11 @@ impl store::FileStore for FileSystemStore {
             None => (),
         }
         File::create(path)?;
-        res.id = Uuid::new_v4();
+        res.id = Uuid::new_v4().to_string();
         Ok(res)
     }
 
-    fn write_chunk(u: UploadConfig) -> Result<UploadResult, Error> {
+    async fn write_chunk(&self, u: UploadConfig) -> Result<UploadResult, Error> {
         let mut res = UploadResult::default();
         let f = File::options().write(true).open(u.object_path)?;
         res.write_size = f.write(&u.data)?;
@@ -95,10 +103,17 @@ impl store::FileStore for FileSystemStore {
         Ok(res)
     }
 
-    fn file_sha256sum(path: &str) -> Result<Box<FileOperationOutput>, Error> {
-        let mut o = FileOperationOutput { sha256: [0; 32] };
+    // fn file_sha256sum(path: &str) -> Result<Box<FileOperationOutput>, Error> {
+    //     let mut o = FileOperationOutput { sha256: [0; 32] };
+    //     let mut f = File::create(path)?;
+    //     o.sha256 = get_file_sha256(&mut f)?;
+    //     Ok(Box::new(o))
+    // }
+
+    fn file_md5sum(path: &str) -> Result<Box<FileOperationOutput>, Error> {
+        let mut o = FileOperationOutput { md5: [0; 16] };
         let mut f = File::create(path)?;
-        o.sha256 = get_file_sha256(&mut f)?;
+        o.md5 = get_file_md5sum(&mut f)?;
         Ok(Box::new(o))
     }
 
@@ -126,13 +141,24 @@ impl store::FileStore for FileSystemStore {
     }
 }
 
-// get_file_sha256 calculates the sha256sum of file
-fn get_file_sha256(f: &mut File) -> Result<[u8; 32], Error> {
-    let mut hasher = Sha256::new();
+// get_file_md5sum calculates the sha256sum of file
+fn get_file_md5sum(f: &mut File) -> Result<[u8; 16], Error> {
+    let mut hasher = Md5::new();
     let _n = io::copy(f, &mut hasher)?;
     let hash = hasher.finalize();
     // sh256 hash should have 32 bytes -> 8*32=256 bits
-    let mut a: [u8; 32] = [0; 32];
-    a.copy_from_slice(&hash[0..31]);
+    let mut a: [u8; 16] = [0; 16];
+    a.copy_from_slice(&hash[0..15]);
     Ok(a)
 }
+
+// get_file_sha256 calculates the sha256sum of file
+// fn get_file_sha256(f: &mut File) -> Result<[u8; 32], Error> {
+//     let mut hasher = Sha256::new();
+//     let _n = io::copy(f, &mut hasher)?;
+//     let hash = hasher.finalize();
+//     // sh256 hash should have 32 bytes -> 8*32=256 bits
+//     let mut a: [u8; 32] = [0; 32];
+//     a.copy_from_slice(&hash[0..31]);
+//     Ok(a)
+// }
